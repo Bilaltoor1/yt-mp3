@@ -32,131 +32,7 @@ info() {
 
 echo -e "${GREEN}🚀 Setting up yttmp3.com production environment...${NC}"
 
-# Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   error "This script should not be run as root for security reasons"
-fi
-
-# Function to check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Update system
-log "Updating system packages..."
-sudo apt-get update && sudo apt-get upgrade -y
-
-# Install essential packages
-log "Installing essential packages..."
-sudo apt-get install -y curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release
-
-# Install Docker if not present
-if ! command_exists docker; then
-    log "Installing Docker..."
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    sudo usermod -aG docker $USER
-    rm get-docker.sh
-    info "Docker installed. You may need to log out and back in for group changes to take effect."
-else
-    log "Docker is already installed"
-fi
-
-# Install Docker Compose if not present
-if ! command_exists docker-compose; then
-    log "Installing Docker Compose..."
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-else
-    log "Docker Compose is already installed"
-fi
-
-# Install FFmpeg (backup if Docker container fails)
-if ! command_exists ffmpeg; then
-    log "Installing FFmpeg..."
-    sudo apt-get install -y ffmpeg
-else
-    log "FFmpeg is already installed"
-fi
-
-# Install Node.js and npm (for local development)
-if ! command_exists node; then
-    log "Installing Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-else
-    log "Node.js is already installed"
-fi
-
-# Install nginx (reverse proxy)
-if ! command_exists nginx; then
-    log "Installing Nginx..."
-    sudo apt-get install -y nginx
-    sudo systemctl enable nginx
-else
-    log "Nginx is already installed"
-fi
-
-# Create necessary directories
-log "Creating directories..."
-sudo mkdir -p /var/www/yttmp3.com
-sudo mkdir -p /var/log/yttmp3
-sudo mkdir -p /etc/nginx/sites-available
-sudo mkdir -p /etc/nginx/sites-enabled
-
-# Set up firewall
-log "Configuring UFW firewall..."
-sudo ufw --force enable
-sudo ufw allow ssh
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw reload
-
-# Set up environment file
-if [ ! -f .env.local ]; then
-    log "Creating .env.local file..."
-    cp .env.example .env.local
-    warn "Please edit .env.local with your production values"
-fi
-
-# Build and start the application
-log "Building Docker images..."
-docker-compose build
-
-log "Starting services..."
-docker-compose up -d
-
-# Wait for services to be ready
-log "Waiting for services to be ready..."
-sleep 30
-
-# Test the application
-if curl -f -s http://localhost:3000/api/health > /dev/null; then
-    log "✅ Application is running successfully!"
-    log "🌐 Access your application at: http://localhost:3000"
-else
-    error "❌ Application health check failed. Check the logs with: docker-compose logs"
-fi
-
-# Display useful information
-echo -e "\n${GREEN}🎉 Deployment completed successfully!${NC}"
-echo -e "\n${BLUE}Useful commands:${NC}"
-echo -e "  📊 View logs:           docker-compose logs -f"
-echo -e "  🔄 Restart services:    docker-compose restart"
-echo -e "  🛑 Stop services:       docker-compose down"
-echo -e "  📈 View status:         docker-compose ps"
-echo -e "  🔍 Health check:        curl http://localhost:3000/api/health"
-
-echo -e "\n${YELLOW}Next steps:${NC}"
-echo -e "  1. Configure your domain DNS to point to this server"
-echo -e "  2. Set up SSL certificate using certbot"
-echo -e "  3. Configure Nginx reverse proxy for production"
-echo -e "  4. Set up monitoring and logging"
-echo -e "  5. Configure automated backups"
-
-log "Setup complete! 🚀"
-
-# Check if running as root and configure accordingly
+# Check if running as root and set variables accordingly
 if [[ $EUID -eq 0 ]]; then
    echo -e "${YELLOW}⚠️  Running as root. Creating dedicated user for better security...${NC}"
    RUNNING_AS_ROOT=true
@@ -169,6 +45,11 @@ else
 fi
 
 DOMAIN="yttmp3.com"
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
 
 # Prompt for email if not set
 echo -e "${YELLOW}📧 Enter your email for SSL certificate (Let's Encrypt):${NC}"
@@ -185,7 +66,8 @@ echo "  • Install and configure Nginx"
 echo "  • Set up SSL certificates with Let's Encrypt"
 echo "  • Configure firewall (UFW)"
 echo "  • Create systemd service for auto-start"
-echo "  • Deploy the YouTube MP3 converter"
+echo "  • Deploy the audio/video converter"
+
 echo ""
 read -p "Continue? (y/N): " -n 1 -r
 echo
@@ -243,7 +125,7 @@ ufw allow ssh
 ufw allow 'Nginx Full'
 ufw --force enable
 
-# Create project directory and clone/copy files
+# Create project directory and copy files
 echo -e "${GREEN}📁 Setting up project directory...${NC}"
 if [ ! -d "$PROJECT_DIR" ]; then
     mkdir -p "$PROJECT_DIR"
@@ -307,7 +189,7 @@ fi
 echo -e "${GREEN}⚙️  Creating systemd service...${NC}"
 tee /etc/systemd/system/yttmp3.service > /dev/null <<EOF
 [Unit]
-Description=YouTube MP3 Converter
+Description=Audio/Video Converter
 Requires=docker.service
 After=docker.service
 
