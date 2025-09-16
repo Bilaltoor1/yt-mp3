@@ -28,14 +28,21 @@ WORKDIR /app
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
 
-# Install runtime dependencies
+# Install runtime dependencies including FFmpeg with all codecs
 RUN apk add --no-cache \
     ffmpeg \
+    ffmpeg-libs \
+    ffmpeg-dev \
     ca-certificates \
     wget \
     dumb-init \
     && update-ca-certificates \
     && rm -rf /var/cache/apk/*
+
+# Verify FFmpeg installation and codecs
+RUN ffmpeg -version && \
+    ffmpeg -codecs | grep -E "(mp3|aac|vorbis|flac)" && \
+    echo "FFmpeg codecs verified successfully"
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs

@@ -23,32 +23,60 @@ function getFFmpegArgs(inputPath, outputPath, options) {
   const { outputFormat, quality, compression } = options;
   let args = ['-i', inputPath, '-y']; // -y to overwrite output files
   
-  // Audio encoding settings
+  // Add error handling and verbose output for debugging
+  args.push('-loglevel', 'error', '-stats');
+  
+  // Audio encoding settings with fallback codecs
   if (outputFormat === 'mp3') {
-    args.push('-codec:a', 'libmp3lame', '-b:a', QUALITY_SETTINGS[quality]);
+    // Check if libmp3lame is available, fallback to mp3 if not
+    args.push('-codec:a', 'libmp3lame');
+    args.push('-b:a', QUALITY_SETTINGS[quality]);
+    args.push('-joint_stereo', '1'); // Better compatibility
   } else if (outputFormat === 'm4a') {
-    args.push('-codec:a', 'aac', '-b:a', QUALITY_SETTINGS[quality]);
+    // Use AAC codec for M4A
+    args.push('-codec:a', 'aac');
+    args.push('-b:a', QUALITY_SETTINGS[quality]);
+    args.push('-movflags', '+faststart'); // Optimize for web
   } else if (outputFormat === 'wav') {
+    // PCM 16-bit for WAV (uncompressed)
     args.push('-codec:a', 'pcm_s16le');
+    args.push('-ar', '44100'); // Sample rate
   } else if (outputFormat === 'flac') {
+    // FLAC lossless compression
     args.push('-codec:a', 'flac');
+    args.push('-compression_level', '5'); // Balanced compression
   } else if (outputFormat === 'aac') {
-    args.push('-codec:a', 'aac', '-b:a', QUALITY_SETTINGS[quality]);
+    // AAC codec
+    args.push('-codec:a', 'aac');
+    args.push('-b:a', QUALITY_SETTINGS[quality]);
+    args.push('-profile:a', 'aac_low'); // Better compatibility
   } else if (outputFormat === 'ogg') {
-    args.push('-codec:a', 'libvorbis', '-b:a', QUALITY_SETTINGS[quality]);
+    // Vorbis codec for OGG
+    args.push('-codec:a', 'libvorbis');
+    args.push('-b:a', QUALITY_SETTINGS[quality]);
+    args.push('-q:a', '4'); // Quality setting
+  } else if (outputFormat === 'wma') {
+    // Windows Media Audio
+    args.push('-codec:a', 'wmav2');
+    args.push('-b:a', QUALITY_SETTINGS[quality]);
   }
   
-  // Compression settings
+  // Additional compression settings
   if (compression) {
-    // Add compression flags for smaller file sizes
-    args.push('-compression_level', '9');
+    args.push('-compression_level', '6');
     if (outputFormat === 'mp3') {
-      args.push('-q:a', '9'); // Variable bitrate for better compression
+      args.push('-q:a', '2'); // Variable bitrate quality
     }
   }
   
   // Strip video for video-to-audio conversion
   args.push('-vn');
+  
+  // Audio channel and sample rate normalization
+  args.push('-ac', '2'); // Stereo
+  if (outputFormat !== 'wav') {
+    args.push('-ar', '44100'); // 44.1kHz sample rate
+  }
   
   args.push(outputPath);
   return args;
@@ -60,27 +88,61 @@ async function convertFile(inputPath, outputPath, options) {
     
     console.log('FFmpeg command:', 'ffmpeg', args.join(' '));
     
-    const ffmpeg = spawn('ffmpeg', args, {
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    
-    let stderr = '';
-    
-    ffmpeg.stderr.on('data', (data) => {
-      stderr += data.toString();
+    // Check if FFmpeg is available
+    const ffmpeg = spawn('ffmpeg', ['-version'], { stdio: 'pipe' });
+    ffmpeg.on('error', (err) => {
+      reject(new Error(`FFmpeg not found: ${err.message}. Please ensure FFmpeg is installed.`));
+      return;
     });
     
     ffmpeg.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        console.error('FFmpeg error:', stderr);
-        reject(new Error(`FFmpeg conversion failed: ${stderr}`));
+      if (code !== 0) {
+        reject(new Error('FFmpeg is not working properly. Please check installation.'));
+        return;
       }
-    });
-    
-    ffmpeg.on('error', (err) => {
-      reject(new Error(`FFmpeg process error: ${err.message}`));
+      
+      // FFmpeg is available, proceed with conversion
+      const conversion = spawn('ffmpeg', args, {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      
+      let stderr = '';
+      let stdout = '';
+      
+      conversion.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+      
+      conversion.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      conversion.on('close', (code) => {
+        if (code === 0) {
+          console.log('FFmpeg conversion successful');
+          resolve();
+        } else {
+          console.error('FFmpeg error code:', code);
+          console.error('FFmpeg stderr:', stderr);
+          console.error('FFmpeg stdout:', stdout);
+          reject(new Error(`FFmpeg conversion failed with exit code ${code}: ${stderr || 'Unknown error'}`));
+        }
+      });
+      
+      conversion.on('error', (err) => {
+        console.error('FFmpeg process error:', err);
+        reject(new Error(`FFmpeg process error: ${err.message}`));
+      });
+      
+      // Set timeout for conversion (5 minutes)
+      const timeout = setTimeout(() => {
+        conversion.kill('SIGKILL');
+        reject(new Error('Conversion timeout: Process took too long'));
+      }, 300000);
+      
+      conversion.on('close', () => {
+        clearTimeout(timeout);
+      });
     });
   });
 }
@@ -147,12 +209,25 @@ export async function POST(request) {
     // Create temporary file paths
     const tempDir = path.join(process.cwd(), 'temp');
     
-    // Ensure temp directory exists
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
+    console.log('Temp directory:', tempDir);
+    console.log('Current working directory:', process.cwd());
     
-    const timestamp = Date.now();
+    // Ensure temp directory exists with proper permissions
+    try {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true, mode: 0o755 });
+        console.log('Created temp directory:', tempDir);
+      }
+      
+      // Test write permissions
+      const testFile = path.join(tempDir, 'test-write');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      console.log('Temp directory write test passed');
+    } catch (permError) {
+      console.error('Temp directory permission error:', permError);
+      throw new Error(`Cannot access temp directory: ${permError.message}`);
+    }    const timestamp = Date.now();
     const randomId = Math.random().toString(36).substring(7);
     
     tempInputPath = path.join(tempDir, `input_${timestamp}_${randomId}.${inputExtension}`);
@@ -163,13 +238,42 @@ export async function POST(request) {
     fs.writeFileSync(tempInputPath, buffer);
     
     console.log(`Converting ${inputExtension} to ${outputFormat} with ${quality} quality`);
+    console.log(`Input file size: ${buffer.length} bytes`);
+    
+    // Validate input file
+    if (buffer.length === 0) {
+      throw new Error('Input file is empty');
+    }
+    
+    if (buffer.length > MAX_FILE_SIZE) {
+      throw new Error(`File too large. Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+    }
     
     // Convert file using FFmpeg
-    await convertFile(tempInputPath, tempOutputPath, {
-      outputFormat,
-      quality,
-      compression
-    });
+    try {
+      await convertFile(tempInputPath, tempOutputPath, {
+        outputFormat,
+        quality,
+        compression
+      });
+    } catch (ffmpegError) {
+      console.error('FFmpeg conversion error:', ffmpegError.message);
+      
+      // Check if it's a missing codec error
+      if (ffmpegError.message.includes('Unknown encoder') || 
+          ffmpegError.message.includes('Encoder not found')) {
+        throw new Error(`Audio codec not available for ${outputFormat} format. Please try a different format.`);
+      }
+      
+      // Check if it's a corrupted file error
+      if (ffmpegError.message.includes('Invalid data found') || 
+          ffmpegError.message.includes('moov atom not found')) {
+        throw new Error('Input file appears to be corrupted or invalid. Please try a different file.');
+      }
+      
+      // Re-throw with original error message
+      throw ffmpegError;
+    }
     
     // Check if output file exists and has content
     if (!fs.existsSync(tempOutputPath)) {

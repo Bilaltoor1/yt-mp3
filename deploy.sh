@@ -92,6 +92,20 @@ fi
 echo -e "${GREEN}🛠️  Installing essential packages...${NC}"
 apt install -y curl wget git ufw nginx certbot python3-certbot-nginx
 
+# Install FFmpeg with all codecs
+echo -e "${GREEN}🎵 Installing FFmpeg with multimedia codecs...${NC}"
+apt install -y ffmpeg libavcodec-extra
+
+# Verify FFmpeg installation
+if command -v ffmpeg &> /dev/null; then
+    echo -e "${GREEN}✅ FFmpeg installed successfully${NC}"
+    ffmpeg -version | head -1
+    echo "Available audio codecs:"
+    ffmpeg -codecs 2>/dev/null | grep -E "(mp3|aac|vorbis|flac)" | head -5
+else
+    echo -e "${RED}❌ FFmpeg installation failed${NC}"
+fi
+
 # Install Docker
 echo -e "${GREEN}🐳 Installing Docker...${NC}"
 if ! command -v docker &> /dev/null; then
