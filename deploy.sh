@@ -9,9 +9,152 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Logging function
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+error() {
+    echo -e "${RED}[ERROR] $1${NC}" >&2
+    exit 1
+}
+
+warn() {
+    echo -e "${YELLOW}[WARNING] $1${NC}"
+}
+
+info() {
+    echo -e "${BLUE}[INFO] $1${NC}"
+}
+
 echo -e "${GREEN}🚀 Setting up yttmp3.com production environment...${NC}"
+
+# Check if running as root
+if [[ $EUID -eq 0 ]]; then
+   error "This script should not be run as root for security reasons"
+fi
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Update system
+log "Updating system packages..."
+sudo apt-get update && sudo apt-get upgrade -y
+
+# Install essential packages
+log "Installing essential packages..."
+sudo apt-get install -y curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release
+
+# Install Docker if not present
+if ! command_exists docker; then
+    log "Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    sudo usermod -aG docker $USER
+    rm get-docker.sh
+    info "Docker installed. You may need to log out and back in for group changes to take effect."
+else
+    log "Docker is already installed"
+fi
+
+# Install Docker Compose if not present
+if ! command_exists docker-compose; then
+    log "Installing Docker Compose..."
+    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+else
+    log "Docker Compose is already installed"
+fi
+
+# Install FFmpeg (backup if Docker container fails)
+if ! command_exists ffmpeg; then
+    log "Installing FFmpeg..."
+    sudo apt-get install -y ffmpeg
+else
+    log "FFmpeg is already installed"
+fi
+
+# Install Node.js and npm (for local development)
+if ! command_exists node; then
+    log "Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+else
+    log "Node.js is already installed"
+fi
+
+# Install nginx (reverse proxy)
+if ! command_exists nginx; then
+    log "Installing Nginx..."
+    sudo apt-get install -y nginx
+    sudo systemctl enable nginx
+else
+    log "Nginx is already installed"
+fi
+
+# Create necessary directories
+log "Creating directories..."
+sudo mkdir -p /var/www/yttmp3.com
+sudo mkdir -p /var/log/yttmp3
+sudo mkdir -p /etc/nginx/sites-available
+sudo mkdir -p /etc/nginx/sites-enabled
+
+# Set up firewall
+log "Configuring UFW firewall..."
+sudo ufw --force enable
+sudo ufw allow ssh
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw reload
+
+# Set up environment file
+if [ ! -f .env.local ]; then
+    log "Creating .env.local file..."
+    cp .env.example .env.local
+    warn "Please edit .env.local with your production values"
+fi
+
+# Build and start the application
+log "Building Docker images..."
+docker-compose build
+
+log "Starting services..."
+docker-compose up -d
+
+# Wait for services to be ready
+log "Waiting for services to be ready..."
+sleep 30
+
+# Test the application
+if curl -f -s http://localhost:3000/api/health > /dev/null; then
+    log "✅ Application is running successfully!"
+    log "🌐 Access your application at: http://localhost:3000"
+else
+    error "❌ Application health check failed. Check the logs with: docker-compose logs"
+fi
+
+# Display useful information
+echo -e "\n${GREEN}🎉 Deployment completed successfully!${NC}"
+echo -e "\n${BLUE}Useful commands:${NC}"
+echo -e "  📊 View logs:           docker-compose logs -f"
+echo -e "  🔄 Restart services:    docker-compose restart"
+echo -e "  🛑 Stop services:       docker-compose down"
+echo -e "  📈 View status:         docker-compose ps"
+echo -e "  🔍 Health check:        curl http://localhost:3000/api/health"
+
+echo -e "\n${YELLOW}Next steps:${NC}"
+echo -e "  1. Configure your domain DNS to point to this server"
+echo -e "  2. Set up SSL certificate using certbot"
+echo -e "  3. Configure Nginx reverse proxy for production"
+echo -e "  4. Set up monitoring and logging"
+echo -e "  5. Configure automated backups"
+
+log "Setup complete! 🚀"
 
 # Check if running as root and configure accordingly
 if [[ $EUID -eq 0 ]]; then

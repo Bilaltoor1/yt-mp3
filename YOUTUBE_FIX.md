@@ -77,13 +77,33 @@ For your VPS deployment:
      - .env.local
    ```
 
-3. **Restart Services**
+### 🔑 **Method 4: PO Token (Advanced - Best for Production)**
+
+PO Tokens are session-based tokens that YouTube uses to verify legitimate browser sessions. They're more reliable than cookies alone.
+
+1. **Get PO Token**
+   - Open YouTube in Chrome/Firefox
+   - Press F12 → Network tab
+   - Play any video and look for requests to `youtubei/v1/player`
+   - Find the `po_token` parameter in the request payload
+   - Copy the value (looks like `mweb.gvs+...`)
+
+2. **Set Environment Variable**
+   ```bash
+   # Add to your .env.local file
+   PO_TOKEN=mweb.gvs+your_po_token_here
+   
+   # Or export directly
+   export PO_TOKEN="mweb.gvs+your_po_token_here"
+   ```
+
+3. **Restart Container**
    ```bash
    docker-compose down
    docker-compose up -d
    ```
 
-## 🔒 **Security Notes**
+**Note**: PO Tokens expire quickly (hours/days) and are tied to your browser session. For production, consider using a PO Token provider service or automated browser session management.
 
 - **Never commit** cookies to git repositories
 - **Rotate cookies** regularly (they expire)

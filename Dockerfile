@@ -1,51 +1,68 @@
-# Use official Node.js runtime as base image
-FROM node:22-alpine AS builder
+# Production Dockerfile for yttmp3.com
+FROM node:22-alpine AS base
 
-# Set working directory
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Install dependencies based on the preferred package manager
+COPY package.json package-lock.json* ./
+RUN npm ci --only=production && npm cache clean --force
 
-# Install dependencies
-RUN npm ci
-
-# Copy source code
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build the application
+# Build the application with production optimizations
+ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_ENV production
 RUN npm run build
 
-# Production stage
-FROM node:22-alpine AS runner
-
+# Production image, copy all the files and run next
+FROM base AS runner
 WORKDIR /app
 
-# Install ffmpeg and yt-dlp (static) and wget for health checks
-RUN apk add --no-cache wget ca-certificates ffmpeg python3 \
-	&& update-ca-certificates \
-	&& wget -O /usr/local/bin/yt-dlp https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-	&& chmod a+rx /usr/local/bin/yt-dlp
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
 
-# Create non-root user
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ffmpeg \
+    ca-certificates \
+    wget \
+    dumb-init \
+    && update-ca-certificates \
+    && rm -rf /var/cache/apk/*
+
+# Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy built application
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+# Create temp directory for file processing
+RUN mkdir -p /app/temp && chown nextjs:nodejs /app/temp
 
-# Change ownership to nextjs user
-RUN chown -R nextjs:nodejs /app
+# Copy the public folder from the builder stage
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/font ./font
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
-# Expose port
 EXPOSE 3000
 
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
-# Start the application
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "server.js"]
