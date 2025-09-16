@@ -6,14 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { rateLimit } from '../../../lib/rateLimiter.js';
+import { getCookiesFromRequest, createCookieFile } from '../../../lib/cookieManager.js';
 
 function pickUserAgent() {
-  const list = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+  const agents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15'
   ];
-  return list[Math.floor(Math.random() * list.length)];
+  return agents[Math.floor(Math.random() * agents.length)];
 }
 
 function qualityFromBitrate(b) {
@@ -38,30 +42,32 @@ export async function POST(request) {
     const ua = pickUserAgent();
     const aqual = qualityFromBitrate(bitrate);
 
-    // Optional cookies via env or header
-    let cookiesPath = '';
-    try {
-      const headers = request.headers;
-      const b64 = headers.get('x-ytdlp-cookies-b64') || process.env.YTDLP_COOKIES_BASE64 || '';
-      if (b64) {
-        const buf = Buffer.from(b64, 'base64');
-        cookiesPath = path.join(tmpDir, 'cookies.txt');
-        fs.writeFileSync(cookiesPath, buf);
-      }
-    } catch {}
+    // Get cookies and create cookie file if available
+    const cookiesBase64 = getCookiesFromRequest(request);
+    const cookiePath = createCookieFile(cookiesBase64, tmpDir);
 
     const args = [
       '-f', 'bestaudio/best',
       '-x', '--audio-format', 'mp3', '--audio-quality', aqual,
       '-o', outTpl,
       '--no-warnings', '--no-playlist',
-      '--add-header', 'Accept-Language: en-US,en;q=0.9',
       '--user-agent', ua,
-      '--extractor-args', 'youtube:player_client=android',
+      '--add-header', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      '--add-header', 'Accept-Language: en-US,en;q=0.9',
+      '--add-header', 'Accept-Encoding: gzip, deflate, br',
+      '--add-header', 'DNT: 1',
+      '--add-header', 'Connection: keep-alive',
+      '--add-header', 'Upgrade-Insecure-Requests: 1',
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--extractor-args', 'youtube:player_skip=configs',
+      '--extractor-args', 'youtube:skip=hls,dash',
     ];
-    if (cookiesPath) {
-      args.push('--cookies', cookiesPath);
+    
+    // Add cookies if available
+    if (cookiePath) {
+      args.push('--cookies', cookiePath);
     }
+    
     args.push(url);
 
     let child;

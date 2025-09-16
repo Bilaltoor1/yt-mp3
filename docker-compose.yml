@@ -6,7 +6,13 @@ services:
     image: yt-mp3-frontend:latest
     environment:
       - NODE_ENV=production
-      # - YTDLP_COOKIES_BASE64= (optional base64 encoded cookies.txt for geofenced/private)
+      # Add your YouTube cookies here as base64 encoded string
+      # To get cookies: Use browser extension "Get cookies.txt LOCALLY"
+      # Then encode: cat cookies.txt | base64 -w 0
+      - YTDLP_COOKIES_BASE64=${YTDLP_COOKIES_BASE64:-}
+      # Alternative: Set via .env file (more secure)
+    env_file:
+      - .env.local
     ports:
       - "3000:3000"
     healthcheck:
