@@ -1,0 +1,17 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yt-mp3-frontend:latest
+    environment:
+      - NODE_ENV=production
+      # - YTDLP_COOKIES_BASE64= (optional base64 encoded cookies.txt for geofenced/private)
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "-", "http://localhost:3000" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

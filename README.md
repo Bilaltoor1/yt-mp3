@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# YouTube to MP3 Converter
 
-## Getting Started
+A modern web application for converting YouTube videos to MP3 files using Next.js and Docker microservices.
 
-First, run the development server:
+## Features
 
+- 🎵 Convert YouTube videos to MP3 format
+- 🎛️ Multiple audio quality options (64k, 128k, 320k)
+- 🎨 Modern, responsive UI with Tailwind CSS
+- 🐳 Dockerized microservices architecture
+- ⚡ Fast and efficient processing
+
+## Tech Stack
+
+- **Frontend**: Next.js 15, React 19, Tailwind CSS 4
+- **Backend**: YouTube-DL microservice (mikenye/youtube-dl)
+- **Containerization**: Docker & Docker Compose
+
+## Quick Start
+
+### Prerequisites
+
+- Docker
+- Docker Compose
+
+### Running the Application
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <your-repo-url>
+cd yt-mp3
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Build and start the services:
+```bash
+docker-compose up --build
+```
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+3. Open your browser and navigate to:
+```
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Usage
 
-## Learn More
+1. **Enter YouTube URL**: Paste any YouTube video URL in the input field
+2. **Convert**: Click the "Convert" button to fetch video information
+3. **Select Quality**: Choose your preferred audio quality (64k, 128k, or 320k)
+4. **Download**: Click "Download MP3" to get your audio file
 
-To learn more about Next.js, take a look at the following resources:
+## API Endpoints
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Frontend APIs
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `POST /api/video-info` - Get video information
+- `POST /api/download` - Download MP3 file
 
-## Deploy on Vercel
+### YouTube-DL Service APIs
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `POST http://localhost:8080/info` - Get video metadata
+- `POST http://localhost:8080/download` - Download and convert video
+- `GET http://localhost:8080/health` - Health check
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Docker Services
+
+### Frontend Service
+- **Port**: 3000
+- **Image**: Built from local Dockerfile
+- **Framework**: Next.js with standalone output
+
+### YouTube-DL Service
+- **Port**: 8080
+- **Image**: mikenye/youtube-dl
+- **Features**: Flask API wrapper around youtube-dl
+
+## Development
+
+To run in development mode:
+
+```bash
+npm install
+npm run dev
+```
+
+## Production Deployment
+
+The application is production-ready with:
+- Optimized Docker images
+- Standalone Next.js build
+- Health checks
+- Restart policies
+- Volume persistence
+
+## License
+
+For personal use only. Please respect YouTube's Terms of Service and copyright laws.
+
+## Disclaimer
+
+This tool is for educational purposes only. Users are responsible for complying with YouTube's Terms of Service and applicable copyright laws.

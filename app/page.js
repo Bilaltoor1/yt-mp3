@@ -1,103 +1,156 @@
-import Image from "next/image";
+"use client";
+import { useState, useRef } from 'react';
 
-export default function Home() {
+async function fetchWithRetry(url, options = {}, attempts = 3, backoffMs = 700) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      // Fetch without client abort to allow server processing time
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        if (res.status >= 500 && i < attempts - 1) {
+          await new Promise(r => setTimeout(r, backoffMs * (i + 1)));
+          continue;
+        }
+      }
+      return res;
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        await new Promise(r => setTimeout(r, backoffMs * (i + 1)));
+        continue;
+      }
+    }
+  }
+  throw lastErr || new Error('Network error');
+}
+
+export default function Page() {
+  const [url, setUrl] = useState("");
+  const [bitrate, setBitrate] = useState("128k");
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState("");
+  const [meta, setMeta] = useState(null);
+  const lastUrl = useRef("");
+
+  async function handleInfo() {
+    setError("");
+    setMeta(null);
+    setLoadingInfo(true);
+    lastUrl.current = url;
+    try {
+      const res = await fetchWithRetry('/api/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch info');
+      const raw = data.raw ? JSON.parse(data.raw) : null;
+      if (!raw) throw new Error('Invalid metadata');
+      setMeta({
+        title: raw.title || 'Unknown Title',
+        thumbnail: raw.thumbnail || (raw.thumbnails && raw.thumbnails[0]?.url) || null,
+        duration: raw.duration,
+      });
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setLoadingInfo(false);
+    }
+  }
+
+  async function handleDownload() {
+    setError("");
+    setDownloading(true);
+    try {
+      // Use a much longer timeout for downloads (5 minutes)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+      
+      const res = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, bitrate }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || 'Download failed');
+      }
+      const blob = await res.blob();
+      const filename = (meta?.title || 'audio') + '.mp3';
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <main className="min-h-screen p-6 flex flex-col items-center">
+      <div className="w-full max-w-3xl space-y-6">
+        <h1 className="text-2xl font-semibold">YouTube → MP3 Converter</h1>
+        <div className="space-y-3">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="Paste YouTube video URL"
+            className="w-full border rounded px-3 py-2"
+          />
+          <div className="flex flex-wrap gap-3 items-center">
+            <select
+              value={bitrate}
+              onChange={(e) => setBitrate(e.target.value)}
+              className="border rounded px-3 py-2"
+            >
+              <option value="64k">64 kbps</option>
+              <option value="128k">128 kbps (default)</option>
+              <option value="320k">320 kbps</option>
+            </select>
+            <button
+              onClick={handleInfo}
+              disabled={!url || loadingInfo}
+              className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
+            >
+              {loadingInfo ? 'Fetching…' : 'Get Info'}
+            </button>
+            <button
+              onClick={handleDownload}
+              disabled={!meta || downloading}
+              className="px-4 py-2 rounded border disabled:opacity-50"
+            >
+              {downloading ? 'Downloading…' : 'Download MP3'}
+            </button>
+          </div>
+          {error && <p className="text-red-600 text-sm">{error}</p>}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        {meta && (
+          <div className="flex gap-4 border rounded p-3 items-center">
+            {meta.thumbnail && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={meta.thumbnail} alt="thumb" className="w-28 h-28 object-cover rounded" />
+            )}
+            <div>
+              <p className="font-medium break-all">{meta.title}</p>
+              <p className="text-sm text-gray-500">Bitrate: {bitrate}</p>
+              {meta.duration && <p className="text-xs text-gray-500">Duration: {meta.duration}s</p>}
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
